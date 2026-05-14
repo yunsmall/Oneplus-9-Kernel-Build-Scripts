@@ -59,7 +59,7 @@ def download(url, dest_path):
     print(f"  Downloading {url} ...")
     # Use wget for resumability and progress bar
     subprocess.run(
-        ["wget", "-q", "--show-progress", "-O", dest_path, url],
+        ["wget", "-c", "--show-progress", "-O", dest_path, url],
         check=True,
     )
 
@@ -289,7 +289,8 @@ Source repos (defaults):
     if args.download:
         # --- Download mode ---
         build_dir = os.path.abspath(args.zip_modules_or_builddir or ".")
-        cache_dir = args.cache_dir or tempfile.mkdtemp()
+        cache_dir = args.cache_dir or os.path.join(
+            tempfile.gettempdir(), "oneplus_kernel_cache")
 
         url_modules = github_archive_url(args.repo_modules, args.branch_modules)
         url_kernel = github_archive_url(args.repo_kernel, args.branch_kernel)
