@@ -31,7 +31,7 @@
   2. 解压内核主源码 zip → 进入 kernel/msm-5.4/
   3. rsync -aH 将内核源码合并到 kernel/msm-5.4/（合并 techpack/ 等同名目录）
   4. 删除解压残留的空目录
-  5. 修改顶层 Makefile：-Werror → -Wno-error（strict-prototypes, implicit-int）
+  5. 修改顶层 Makefile：-Werror → -Wno-error（strict-prototypes, implicit-int, implicit-function-declaration）
   6. 输出编译命令
 """
 
@@ -93,7 +93,9 @@ def apply_makefile_patches(kernel_dir):
         content = f.read()
     patches = [
         ("-Werror=strict-prototypes", "-Wno-error=strict-prototypes"),
-        ("-Werror=implicit-int", "-Wno-error=implicit-int"),
+        ("-Werror=implicit-int", "-Wno-implicit-int"),
+        ("-Werror=implicit-function-declaration",
+         "-Wno-error=implicit-function-declaration"),
     ]
     for old, new in patches:
         if old in content:
@@ -159,6 +161,7 @@ def build_from_zips(zip_modules, zip_source, build_dir, kernel_subdir):
 
 
 def print_build_info(build_dir, kernel_dir):
+    kr = os.path.relpath(kernel_dir, build_dir)
     print(f"""
 {'=' * 60}
   Build directory: {build_dir}
@@ -182,11 +185,15 @@ def print_build_info(build_dir, kernel_dir):
   cd {build_dir}
   mkdir -p out
   mv out/.config out/.config.bak
-  make DISABLE_WRAPPER=1 LLVM=-20 O=out ARCH=arm64 olddefconfig
+  make -C {kr} DISABLE_WRAPPER=1 LLVM=-20 O=out ARCH=arm64 \\
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \\
+      olddefconfig
 
   --- 编译 ---
 
-  make DISABLE_WRAPPER=1 LLVM=-20 O=out ARCH=arm64 vmlinux -j$(nproc)
+  make -C {kr} DISABLE_WRAPPER=1 LLVM=-20 O=out ARCH=arm64 \\
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \\
+      vmlinux -j$(nproc)
 
   --- 生成 compile_commands.json ---
 
@@ -255,6 +262,10 @@ Source repos (defaults):
         "--kernel-subdir", default="kernel/msm-5.4",
         help="内核在 build_dir 下的相对路径 (default: kernel/msm-5.4)",
     )
+    parser.add_argument(
+        "--guide", action="store_true",
+        help="仅打印编译教程（不执行构建）",
+    )
 
     # Positional args: zip paths and build dir
     parser.add_argument(
@@ -274,6 +285,13 @@ Source repos (defaults):
     )
 
     args = parser.parse_args()
+
+    # --guide: just print build instructions and exit
+    if args.guide:
+        build_dir = os.path.abspath(args.zip_modules_or_builddir or os.getcwd())
+        kernel_dir = os.path.join(build_dir, args.kernel_subdir)
+        print_build_info(build_dir, kernel_dir)
+        return
 
     # ---- Display source info ----
     print("=" * 60)
