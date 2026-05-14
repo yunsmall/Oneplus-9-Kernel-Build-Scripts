@@ -94,6 +94,8 @@ def apply_makefile_patches(kernel_dir):
     patches = [
         ("-Werror=strict-prototypes", "-Wno-error=strict-prototypes"),
         ("-Werror=implicit-int", "-Wno-error=implicit-int"),
+        ("-Wno-format-security",
+         "-Wno-format-security -Wno-error=vla-extension"),
     ]
     for old, new in patches:
         if old in content:
@@ -105,17 +107,54 @@ def apply_makefile_patches(kernel_dir):
         f.write(content)
 
 
+def generate_env_sh(build_dir, kernel_dir):
+    """Generate env.sh in the build directory."""
+    env_sh = os.path.join(build_dir, "env.sh")
+    print(f"  Writing {env_sh}")
+    with open(env_sh, "w") as f:
+        f.write(f"""\
+# OnePlus kernel build environment
+# Usage: source env.sh
+
+export ARCH=arm64
+export LLVM=-20
+export DISABLE_WRAPPER=1
+export CLANG_TRIPLE=aarch64-linux-gnu-
+export CROSS_COMPILE=aarch64-linux-android-
+
+export BUILD_DIR={build_dir}
+export KERNEL_DIR={kernel_dir}
+export OUT_DIR={build_dir}/out
+
+echo "Environment:"
+echo "  ARCH=$ARCH"
+echo "  LLVM=$LLVM"
+echo "  DISABLE_WRAPPER=$DISABLE_WRAPPER"
+echo "  CLANG_TRIPLE=$CLANG_TRIPLE"
+echo "  CROSS_COMPILE=$CROSS_COMPILE"
+echo "  BUILD_DIR=$BUILD_DIR"
+echo "  KERNEL_DIR=$KERNEL_DIR"
+echo "  OUT_DIR=$OUT_DIR"
+echo ""
+echo "Now you can run:"
+echo "  cd $KERNEL_DIR"
+echo "  make O=$OUT_DIR olddefconfig"
+echo "  make O=$OUT_DIR vmlinux -j\\\\$(nproc)"
+""")
+    os.chmod(env_sh, 0o755)
+
+
 # ---- Build steps ----
 
 def build_from_zips(zip_modules, zip_source, build_dir, kernel_subdir):
     kernel_dir = os.path.join(build_dir, kernel_subdir)
 
     # Step 1
-    print(f"\n[1/7] Creating {build_dir}")
+    print(f"\n[1/8] Creating {build_dir}")
     os.makedirs(build_dir, exist_ok=True)
 
     # Step 2
-    print(f"\n[2/7] Unzipping modules_and_devicetree ...")
+    print(f"\n[2/8] Unzipping modules_and_devicetree ...")
     top1 = zip_toplevel(zip_modules)
     run(f"unzip -q '{zip_modules}' -d '{build_dir}'")
     inner = os.path.join(build_dir, top1)
@@ -128,33 +167,37 @@ def build_from_zips(zip_modules, zip_source, build_dir, kernel_subdir):
     print(f"  Flattened and removed {top1}")
 
     # Step 3
-    print(f"\n[3/7] Unzipping kernel source into {kernel_subdir} ...")
+    print(f"\n[3/8] Unzipping kernel source into {kernel_subdir} ...")
     os.makedirs(kernel_dir, exist_ok=True)
     top2 = zip_toplevel(zip_source)
     run(f"unzip -q '{zip_source}' -d '{kernel_dir}'")
     inner = os.path.join(kernel_dir, top2)
 
     # Step 4
-    print(f"\n[4/7] Merging {top2}/* -> {kernel_subdir}/ via rsync -aH ...")
+    print(f"\n[4/8] Merging {top2}/* -> {kernel_subdir}/ via rsync -aH ...")
     run(f"rsync -aH '{inner}/' '{kernel_dir}/'")
     shutil.rmtree(inner)
     print(f"  Removed {top2}")
 
     # Step 5
-    print(f"\n[5/7] Applying -Wno-error patches ...")
+    print(f"\n[5/8] Applying -Wno-error patches ...")
     apply_makefile_patches(kernel_dir)
 
-    # Step 6: copy modified gen_compile_commands.py (supports -s source tree)
+    # Step 6: generate env.sh
+    print(f"\n[6/8] Generating env.sh ...")
+    generate_env_sh(build_dir, kernel_dir)
+
+    # Step 7: copy modified gen_compile_commands.py (supports -s source tree)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     gcc_src = os.path.join(script_dir, "gen_compile_commands.py")
     gcc_dst = os.path.join(kernel_dir, "scripts", "gen_compile_commands.py")
     if os.path.exists(gcc_src):
-        print(f"\n[6/7] Copying modified gen_compile_commands.py ...")
+        print(f"\n[7/8] Copying modified gen_compile_commands.py ...")
         shutil.copy2(gcc_src, gcc_dst)
         print(f"  {gcc_src} -> {gcc_dst}")
 
     # Step 7
-    print(f"\n[7/7] Done!")
+    print(f"\n[7/8] Done!")
     print_build_info(build_dir, kernel_dir)
 
 
@@ -185,13 +228,13 @@ def print_build_info(build_dir, kernel_dir):
   mkdir -p out
   mv out/.config out/.config.bak
   make -C {kr} DISABLE_WRAPPER=1 LLVM=-20 O={build_dir}/out ARCH=arm64 \\
-      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \\
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- \\
       olddefconfig
 
   --- 编译 ---
 
   make -C {kr} DISABLE_WRAPPER=1 LLVM=-20 O={build_dir}/out ARCH=arm64 \\
-      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \\
+      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- \\
       vmlinux -j$(nproc)
 
   --- 生成 compile_commands.json ---
@@ -265,6 +308,10 @@ Source repos (defaults):
         "--guide", action="store_true",
         help="仅打印编译教程（不执行构建）",
     )
+    parser.add_argument(
+        "--env-only", action="store_true",
+        help="仅生成 env.sh（不执行构建）",
+    )
 
     # Positional args: zip paths and build dir
     parser.add_argument(
@@ -290,6 +337,15 @@ Source repos (defaults):
         build_dir = os.path.abspath(args.zip_modules_or_builddir or os.getcwd())
         kernel_dir = os.path.join(build_dir, args.kernel_subdir)
         print_build_info(build_dir, kernel_dir)
+        return
+
+    # --env-only: just generate env.sh and exit
+    if args.env_only:
+        build_dir = os.path.abspath(args.zip_modules_or_builddir or os.getcwd())
+        kernel_dir = os.path.join(build_dir, args.kernel_subdir)
+        print(f"Generating env.sh in {build_dir} ...")
+        generate_env_sh(build_dir, kernel_dir)
+        print("Done.")
         return
 
     # ---- Display source info ----

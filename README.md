@@ -11,33 +11,52 @@
 | OnePlus 9 (sm8350) | `OnePlusOSS/android_kernel_oneplus_sm8350` | `oneplus/sm8350_u_14.0.0_oneplus9` |
 | OnePlus 9 (sm8350) | `OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8350` | `oneplus/sm8350_u_14.0.0_oneplus9` |
 
-其他一加设备的仓库结构类似（一个内核仓库 + 一个 modules/devicetree 仓库），理论上可用，但未测试。
-
 ## 文件说明
 
 - `create_oneplus_build.py` — 主脚本，创建编译目录
 - `gen_compile_commands.py` — 修改版，支持外部构建（新增 `-s` 指定源码树路径）
+- `env.sh` — 由脚本自动生成在构建目录中，source 后设置好 CROSS_COMPILE / OUT_DIR 等
 
 ## 快速开始
 
 ```bash
 # 自动下载并创建编译目录
-python3 create_oneplus_build.py --download ~/oneplus_build
+./create_oneplus_build.py --download ~/oneplus_build
 
 # 使用本地 zip
-python3 create_oneplus_build.py modules.zip kernel.zip ~/oneplus_build
+./create_oneplus_build.py modules.zip kernel.zip ~/oneplus_build
 
 # 自定义仓库/分支
-python3 create_oneplus_build.py --download ~/oneplus_build \
+./create_oneplus_build.py --download ~/oneplus_build \
     --repo-kernel MyOrg/kernel --branch-kernel my-branch
+
+# 仅打印编译教程（不执行构建）
+./create_oneplus_build.py --guide ~/oneplus_build
+```
+
+## 获取 .config
+
+```bash
+# 从已 root 的手机提取
+adb pull /proc/config.gz
+gunzip config.gz
+mv config ~/oneplus_build/out/.config
 ```
 
 ## 编译
 
 ```bash
-cd ~/oneplus_build
-mkdir -p out
-make DISABLE_WRAPPER=1 LLVM=-20 O=out ARCH=arm64 vmlinux -j$(nproc)
+# 脚本会在构建目录自动生成 env.sh，source 后所有变量就设好了
+source ~/oneplus_build/env.sh
+
+cd $KERNEL_DIR
+mkdir -p $OUT_DIR
+
+# 同步 .config 与内核版本
+make O=$OUT_DIR olddefconfig
+
+# 编译
+make O=$OUT_DIR vmlinux -j$(nproc)
 ```
 
 ## 生成 compile_commands.json
