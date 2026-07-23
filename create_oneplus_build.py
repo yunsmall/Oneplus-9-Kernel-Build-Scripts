@@ -129,19 +129,30 @@ def apply_nfs_kconfig_patches(kernel_dir):
         f.write(content)
 
 
-def generate_env_sh(build_dir, kernel_dir, llvm="1"):
-    """Generate env.sh in the build directory."""
+def generate_env_sh(build_dir, kernel_dir, llvm=""):
+    """Generate env.sh in the build directory.
+
+    llvm=""  means use system default clang (LLVM=1, no PATH change).
+    llvm="20" means LLVM=1 + prepend /usr/lib/llvm-20/bin to PATH.
+    """
     env_sh = os.path.join(build_dir, "env.sh")
     print(f"  Writing {env_sh}")
+
+    path_line = ""
+    path_echo = ""
+    if llvm:
+        path_line = f'export PATH=/usr/lib/llvm-{llvm}/bin:$PATH\n'
+        path_echo = f'echo "  PATH=/usr/lib/llvm-{llvm}/bin:$PATH"\n'
+
     with open(env_sh, "w") as f:
         f.write(f"""\
 # OnePlus kernel build environment
 # Usage: source env.sh
 
 export ARCH=arm64
-export LLVM={llvm}
+export LLVM=1
 export DISABLE_WRAPPER=1
-export CLANG_TRIPLE=aarch64-linux-gnu-
+{path_line}export CLANG_TRIPLE=aarch64-linux-gnu-
 export CROSS_COMPILE=aarch64-linux-android-
 
 export BUILD_DIR={build_dir}
@@ -154,7 +165,7 @@ echo "  LLVM=$LLVM"
 echo "  DISABLE_WRAPPER=$DISABLE_WRAPPER"
 echo "  CLANG_TRIPLE=$CLANG_TRIPLE"
 echo "  CROSS_COMPILE=$CROSS_COMPILE"
-echo "  BUILD_DIR=$BUILD_DIR"
+{path_echo}echo "  BUILD_DIR=$BUILD_DIR"
 echo "  KERNEL_DIR=$KERNEL_DIR"
 echo "  OUT_DIR=$OUT_DIR"
 echo ""
@@ -168,7 +179,7 @@ echo "  make O=$OUT_DIR vmlinux -j\\\\$(nproc)"
 
 # ---- Build steps ----
 
-def build_from_zips(zip_modules, zip_source, build_dir, kernel_subdir, llvm="1"):
+def build_from_zips(zip_modules, zip_source, build_dir, kernel_subdir, llvm=""):
     kernel_dir = os.path.join(build_dir, kernel_subdir)
 
     # Pre-compute values needed by steps
@@ -352,8 +363,8 @@ Source repos (defaults):
         help="内核在 build_dir 下的相对路径 (default: kernel/msm-5.4)",
     )
     parser.add_argument(
-        "--llvm", default="1",
-        help="LLVM 版本，如 1（默认）、-20、-18 (default: 1)",
+        "--llvm", default="",
+        help="LLVM 版本号，如 20、18。设置后将 /usr/lib/llvm-N/bin 加入 PATH",
     )
     parser.add_argument(
         "--guide", action="store_true",

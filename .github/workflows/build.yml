@@ -18,7 +18,7 @@ jobs:
 
       - name: Setup build directory
         run: |
-          python3 create_oneplus_build.py --download --llvm=-18 build
+          python3 create_oneplus_build.py --download --llvm=18 build
 
       - name: Copy defconfig
         run: |
