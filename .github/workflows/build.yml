@@ -33,21 +33,31 @@ jobs:
           source build/env.sh
           make -C "$KERNEL_DIR" O="$OUT_DIR" olddefconfig
 
-      - name: Build kernel
+      - name: Build
         run: |
           source build/env.sh
-          make -C "$KERNEL_DIR" O="$OUT_DIR" vmlinux -j$(nproc)
+          make -C "$KERNEL_DIR" O="$OUT_DIR" vmlinux modules -j$(nproc)
 
-      - name: Build modules
+      - name: Install modules
         run: |
           source build/env.sh
-          make -C "$KERNEL_DIR" O="$OUT_DIR" modules -j$(nproc)
+          make -C "$KERNEL_DIR" O="$OUT_DIR" modules_install \
+            INSTALL_MOD_PATH="$PWD/build/modules" INSTALL_MOD_STRIP=1
 
-      - name: Upload artifacts
+      - name: Upload vmlinux
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-output
-          path: |
-            build/out/vmlinux
-            build/out/arch/arm64/boot/Image*
-            build/out/*.ko
+          name: vmlinux
+          path: build/out/vmlinux
+
+      - name: Upload Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image
+          path: build/out/arch/arm64/boot/Image*
+
+      - name: Upload modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: modules
+          path: build/modules
