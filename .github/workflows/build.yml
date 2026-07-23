@@ -13,8 +13,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip rsync flex bison bc \
-            clang-18 lld-18 llvm-18 make
+          sudo apt-get install -y \
+            bc bison cpio flex libelf-dev libssl-dev \
+            make rsync unzip wget xz-utils \
+            clang-18 lld-18 llvm-18 \
+            binutils-aarch64-linux-gnu
 
       - name: Setup build directory
         run: |
