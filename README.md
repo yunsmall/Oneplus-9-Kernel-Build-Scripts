@@ -15,7 +15,24 @@
 
 - `create_oneplus_build.py` — 主脚本，创建编译目录
 - `gen_compile_commands.py` — 修改版，支持外部构建（新增 `-s` 指定源码树路径）
+- `oneplus9_defconfig` — OnePlus 9 内核配置文件（从手机 `/proc/config.gz` 提取）
 - `env.sh` — 由脚本自动生成在构建目录中，source 后设置好 CROSS_COMPILE / OUT_DIR 等
+
+## CI 编译
+
+本项目包含 GitHub Actions 工作流，Fork 后即可自动编译内核。
+
+### 使用方法
+
+1. **Fork 本项目**
+2. **（可选）替换 `oneplus9_defconfig`** 为你自己手机的配置文件：
+   ```bash
+   adb pull /proc/config.gz
+   gunzip config.gz
+   mv config oneplus9_defconfig
+   ```
+3. 在 GitHub 上手动触发 CI：`Actions` → `Build Kernel` → `Run workflow`
+4. 等待编译完成，下载产物（vmlinux、Image、.ko 模块）
 
 ## 快速开始
 
@@ -36,11 +53,13 @@
 
 ## 获取 .config
 
+项目已自带 `oneplus9_defconfig`（从 OnePlus 9 提取）。如需使用自己手机的配置：
+
 ```bash
 # 从已 root 的手机提取
 adb pull /proc/config.gz
 gunzip config.gz
-mv config ~/oneplus_build/out/.config
+mv config oneplus9_defconfig
 ```
 
 ## 编译

@@ -1,0 +1,50 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip rsync flex bison bc \
+            clang-18 lld-18 llvm-18 make
+
+      - name: Setup build directory
+        run: |
+          python3 create_oneplus_build.py --download --llvm=-18 build
+
+      - name: Copy defconfig
+        run: |
+          mkdir -p build/out
+          cp oneplus9_defconfig build/out/.config
+
+      - name: olddefconfig
+        run: |
+          source build/env.sh
+          make -C "$KERNEL_DIR" O="$OUT_DIR" olddefconfig
+
+      - name: Build kernel
+        run: |
+          source build/env.sh
+          make -C "$KERNEL_DIR" O="$OUT_DIR" vmlinux -j$(nproc)
+
+      - name: Build modules
+        run: |
+          source build/env.sh
+          make -C "$KERNEL_DIR" O="$OUT_DIR" modules -j$(nproc)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-output
+          path: |
+            build/out/vmlinux
+            build/out/arch/arm64/boot/Image*
+            build/out/*.ko

@@ -107,7 +107,29 @@ def apply_makefile_patches(kernel_dir):
         f.write(content)
 
 
-def generate_env_sh(build_dir, kernel_dir):
+def apply_nfs_kconfig_patches(kernel_dir):
+    """Change NFS_V3/NFS_V4 from bool to tristate so they can be compiled as modules."""
+    kconfig = os.path.join(kernel_dir, "fs", "nfs", "Kconfig")
+    print(f"\n  Patching {kconfig}")
+    with open(kconfig) as f:
+        content = f.read()
+    patches = [
+        ('bool "NFS client support for NFS version 3"',
+         'tristate "NFS client support for NFS version 3"'),
+        ('bool "NFS client support for NFS version 4"',
+         'tristate "NFS client support for NFS version 4"'),
+    ]
+    for old, new in patches:
+        if old in content:
+            content = content.replace(old, new, 1)
+            print(f"    bool -> tristate")
+        else:
+            print(f"    WARNING: NFS Kconfig patch not found")
+    with open(kconfig, "w") as f:
+        f.write(content)
+
+
+def generate_env_sh(build_dir, kernel_dir, llvm="1"):
     """Generate env.sh in the build directory."""
     env_sh = os.path.join(build_dir, "env.sh")
     print(f"  Writing {env_sh}")
@@ -117,7 +139,7 @@ def generate_env_sh(build_dir, kernel_dir):
 # Usage: source env.sh
 
 export ARCH=arm64
-export LLVM=-20
+export LLVM={llvm}
 export DISABLE_WRAPPER=1
 export CLANG_TRIPLE=aarch64-linux-gnu-
 export CROSS_COMPILE=aarch64-linux-android-
@@ -146,16 +168,49 @@ echo "  make O=$OUT_DIR vmlinux -j\\\\$(nproc)"
 
 # ---- Build steps ----
 
-def build_from_zips(zip_modules, zip_source, build_dir, kernel_subdir):
+def build_from_zips(zip_modules, zip_source, build_dir, kernel_subdir, llvm="1"):
     kernel_dir = os.path.join(build_dir, kernel_subdir)
 
-    # Step 1
-    print(f"\n[1/8] Creating {build_dir}")
-    os.makedirs(build_dir, exist_ok=True)
-
-    # Step 2
-    print(f"\n[2/8] Unzipping modules_and_devicetree ...")
+    # Pre-compute values needed by steps
     top1 = zip_toplevel(zip_modules)
+    top2 = zip_toplevel(zip_source)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    gcc_src = os.path.join(script_dir, "gen_compile_commands.py")
+    gcc_dst = os.path.join(kernel_dir, "scripts", "gen_compile_commands.py")
+
+    steps = [
+        (f"Creating {build_dir}",
+         lambda: os.makedirs(build_dir, exist_ok=True)),
+
+        ("Unzipping modules_and_devicetree ...",
+         lambda: _step_unzip_modules(zip_modules, build_dir, top1)),
+
+        (f"Unzipping kernel source into {kernel_subdir} ...",
+         lambda: _step_unzip_kernel(zip_source, kernel_dir, top2)),
+
+        (f"Merging {top2}/* -> {kernel_subdir}/ via rsync -aH ...",
+         lambda: _step_merge_kernel(kernel_dir, top2)),
+
+        ("Applying source patches ...",
+         lambda: _step_patches(kernel_dir)),
+
+        ("Generating env.sh ...",
+         lambda: generate_env_sh(build_dir, kernel_dir, llvm)),
+
+        ("Copying modified gen_compile_commands.py ...",
+         lambda: _step_copy_gcc(gcc_src, gcc_dst)),
+    ]
+
+    total = len(steps)
+    for i, (desc, action) in enumerate(steps, 1):
+        print(f"\n[{i}/{total}] {desc}")
+        action()
+
+    print(f"\n[{total}/{total}] Done!")
+    print_build_info(build_dir, kernel_dir)
+
+
+def _step_unzip_modules(zip_modules, build_dir, top1):
     run(f"unzip -q '{zip_modules}' -d '{build_dir}'")
     inner = os.path.join(build_dir, top1)
     for sub in os.listdir(inner):
@@ -166,39 +221,28 @@ def build_from_zips(zip_modules, zip_source, build_dir, kernel_subdir):
     shutil.rmtree(inner)
     print(f"  Flattened and removed {top1}")
 
-    # Step 3
-    print(f"\n[3/8] Unzipping kernel source into {kernel_subdir} ...")
-    os.makedirs(kernel_dir, exist_ok=True)
-    top2 = zip_toplevel(zip_source)
-    run(f"unzip -q '{zip_source}' -d '{kernel_dir}'")
-    inner = os.path.join(kernel_dir, top2)
 
-    # Step 4
-    print(f"\n[4/8] Merging {top2}/* -> {kernel_subdir}/ via rsync -aH ...")
+def _step_unzip_kernel(zip_source, kernel_dir, top2):
+    os.makedirs(kernel_dir, exist_ok=True)
+    run(f"unzip -q '{zip_source}' -d '{kernel_dir}'")
+
+
+def _step_merge_kernel(kernel_dir, top2):
+    inner = os.path.join(kernel_dir, top2)
     run(f"rsync -aH '{inner}/' '{kernel_dir}/'")
     shutil.rmtree(inner)
     print(f"  Removed {top2}")
 
-    # Step 5
-    print(f"\n[5/8] Applying -Wno-error patches ...")
+
+def _step_patches(kernel_dir):
     apply_makefile_patches(kernel_dir)
+    apply_nfs_kconfig_patches(kernel_dir)
 
-    # Step 6: generate env.sh
-    print(f"\n[6/8] Generating env.sh ...")
-    generate_env_sh(build_dir, kernel_dir)
 
-    # Step 7: copy modified gen_compile_commands.py (supports -s source tree)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    gcc_src = os.path.join(script_dir, "gen_compile_commands.py")
-    gcc_dst = os.path.join(kernel_dir, "scripts", "gen_compile_commands.py")
+def _step_copy_gcc(gcc_src, gcc_dst):
     if os.path.exists(gcc_src):
-        print(f"\n[7/8] Copying modified gen_compile_commands.py ...")
         shutil.copy2(gcc_src, gcc_dst)
         print(f"  {gcc_src} -> {gcc_dst}")
-
-    # Step 7
-    print(f"\n[7/8] Done!")
-    print_build_info(build_dir, kernel_dir)
 
 
 def print_build_info(build_dir, kernel_dir):
@@ -221,21 +265,24 @@ def print_build_info(build_dir, kernel_dir):
   gunzip config.gz
   mv config {build_dir}/out/.config
 
+  --- 设置环境 ---
+
+  source {build_dir}/env.sh
+
   --- 同步 .config 与内核版本 ---
   # 注意：O= 必须使用绝对路径，否则 make -C 会把 out 创建在内核源码目录里
 
   cd {build_dir}
   mkdir -p out
-  mv out/.config out/.config.bak
-  make -C {kr} DISABLE_WRAPPER=1 LLVM=-20 O={build_dir}/out ARCH=arm64 \\
-      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- \\
-      olddefconfig
+  cp out/.config out/.config.bak   # 备份旧 .config（如果有）
+  make -C {kr} O={build_dir}/out olddefconfig
+
+  # 可选：如需进一步调整内核配置（比如开启/关闭某些模块）
+  make -C {kr} O={build_dir}/out menuconfig
 
   --- 编译 ---
 
-  make -C {kr} DISABLE_WRAPPER=1 LLVM=-20 O={build_dir}/out ARCH=arm64 \\
-      CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- \\
-      vmlinux -j$(nproc)
+  make -C {kr} O={build_dir}/out vmlinux -j$(nproc)
 
   --- 生成 compile_commands.json ---
 
@@ -305,6 +352,10 @@ Source repos (defaults):
         help="内核在 build_dir 下的相对路径 (default: kernel/msm-5.4)",
     )
     parser.add_argument(
+        "--llvm", default="1",
+        help="LLVM 版本，如 1（默认）、-20、-18 (default: 1)",
+    )
+    parser.add_argument(
         "--guide", action="store_true",
         help="仅打印编译教程（不执行构建）",
     )
@@ -344,7 +395,7 @@ Source repos (defaults):
         build_dir = os.path.abspath(args.zip_modules_or_builddir or os.getcwd())
         kernel_dir = os.path.join(build_dir, args.kernel_subdir)
         print(f"Generating env.sh in {build_dir} ...")
-        generate_env_sh(build_dir, kernel_dir)
+        generate_env_sh(build_dir, kernel_dir, args.llvm)
         print("Done.")
         return
 
@@ -384,7 +435,7 @@ Source repos (defaults):
         else:
             print(f"  Using cached {zip_kernel}")
 
-        build_from_zips(zip_modules, zip_kernel, build_dir, args.kernel_subdir)
+        build_from_zips(zip_modules, zip_kernel, build_dir, args.kernel_subdir, args.llvm)
 
     else:
         # --- Local zip mode ---
