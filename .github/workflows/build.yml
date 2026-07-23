@@ -2,6 +2,11 @@ name: Build Kernel
 
 on:
   workflow_dispatch:
+    inputs:
+      config_url:
+        description: '.config 文件的 Gist raw URL（可选，留空使用 oneplus9_defconfig）'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -26,7 +31,15 @@ jobs:
       - name: Copy defconfig
         run: |
           mkdir -p build/out
-          cp oneplus9_defconfig build/out/.config
+          if [ -n "$CONFIG_URL" ]; then
+            echo "Downloading config from: $CONFIG_URL"
+            wget -q -O build/out/.config "$CONFIG_URL"
+          else
+            echo "Using oneplus9_defconfig from repo"
+            cp oneplus9_defconfig build/out/.config
+          fi
+        env:
+          CONFIG_URL: ${{ github.event.inputs.config_url }}
 
       - name: olddefconfig
         run: |

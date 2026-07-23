@@ -26,13 +26,27 @@
 
 1. **Fork 本项目**
 2. **（可选）替换 `oneplus9_defconfig`** 为你自己手机的配置文件：
+
+   **方法 A：Fork 后替换文件**
    ```bash
    adb pull /proc/config.gz
    gunzip config.gz
    mv config oneplus9_defconfig
+   git add oneplus9_defconfig && git commit && git push
    ```
-3. 在 GitHub 上手动触发 CI：`Actions` → `Build Kernel` → `Run workflow`
-4. 等待编译完成，下载产物（vmlinux、Image、.ko 模块）
+
+   **方法 B：通过 Gist 传入（不修改仓库）**
+   ```bash
+   # 上传 config 到 Gist
+   adb pull /proc/config.gz
+   gunzip config.gz
+   gh gist create config --public   # 或 --secret 创建私有 Gist
+   # 拿到 raw URL: https://gist.githubusercontent.com/.../raw/.../config
+   ```
+   CI 触发时在 `config_url` 填入 Gist raw URL 即可。
+
+3. 手动触发 CI：`Actions` → `Build Kernel` → `Run workflow`，可选填入 `config_url`
+4. 等待编译完成，下载产物（vmlinux、Image、modules.squashfs）
 
 ### CI 产物使用
 
