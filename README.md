@@ -34,6 +34,25 @@
 3. 在 GitHub 上手动触发 CI：`Actions` → `Build Kernel` → `Run workflow`
 4. 等待编译完成，下载产物（vmlinux、Image、.ko 模块）
 
+### CI 产物使用
+
+三种产物分别对应：
+
+- **vmlinux** — 带符号的内核 ELF，可用于调试
+- **Image** — 压缩内核镜像（Image.gz），用于替换系统内核
+- **modules** — 模块 squashfs 只读压缩镜像
+
+替换内核后，需同步替换模块。**不要直接 mount 到 /lib/modules**（会覆盖系统中其他内核版本的模块）。正确做法：
+
+```bash
+# 获取内核版本号
+KVER=$(zcat /proc/config.gz | grep '^CONFIG_LOCALVERSION' | cut -d'"' -f2)
+
+# 挂载模块镜像
+mount modules.squashfs /mnt/modules
+ln -s /mnt/modules/lib/modules/$KVER /lib/modules/$KVER
+```
+
 ## 快速开始
 
 ```bash
