@@ -32,7 +32,7 @@ jobs:
         run: |
           mkdir -p build/out
           if [ -n "$CONFIG_URL" ]; then
-            echo "Downloading config from: $CONFIG_URL"
+            echo "Downloading config from provided URL"
             wget -q -O build/out/.config "$CONFIG_URL"
           else
             echo "Using oneplus9_defconfig from repo"
